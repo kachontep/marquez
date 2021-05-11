@@ -1,10 +1,15 @@
+import json
 import unittest
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 import dbt.flags as flags
 import dbt.exceptions
 from dbt.adapters.base.query_headers import MacroQueryStringSetter
 from dbt.adapters.openlineage import OpenLineageAdapter
 from dbt.adapters.openlineage import Plugin as OpenLineagePlugin
+from dbt.adapters.openlineage.connections import PRODUCER
+from openlineage.facet import SourceCodeLocationJobFacet, SqlJobFacet
+from openlineage.run import RunEvent, RunState, Job, Run, Dataset
 
 from .utils import config_from_parts_or_dicts, inject_adapter
 
@@ -86,3 +91,66 @@ class TestOpenLineageAdapterAcquire(BaseTestOpenLineageAdapter):
         mock_open_connection.assert_not_called()
         connection.handle
         mock_open_connection.assert_called_once()
+
+    @patch('uuid.uuid4')
+    @patch('dbt.adapters.openlineage.OpenLineageConnectionManager.get_openlineage_client')
+    def test_acquire_connection_test_validations(self, get_openlineage_client, uuid4):
+        uuid4.return_value = '86aea653-25fa-4712-962f-6cb9c44e6317'
+        client = MagicMock()
+        get_openlineage_client.return_value = client
+        run_started_now = datetime.now().isoformat()
+
+        adapter = self.get_adapter('test')
+        try:
+            connection = adapter.acquire_connection('dummy')
+            self.assertEqual(connection.type, 'openlineage')
+
+        except dbt.exceptions.ValidationException as e:
+            self.fail('got ValidationException: {}'.format(str(e)))
+
+        except BaseException as e:
+            raise
+
+        with open('tests/model.json') as f:
+            model = json.load(f)
+            adapter.emit_start(model, run_started_now)
+
+        get_openlineage_client.assert_called()
+        client.emit.assert_called_with(RunEvent(
+            eventType=RunState.START,
+            eventTime=run_started_now,
+            run=Run(runId='86aea653-25fa-4712-962f-6cb9c44e6317'),
+            job=Job(
+                namespace="dbt_openlineage_test",
+                name="model.dbt_openlineage_test.test_third_dbt_model",
+                facets={
+                    "sourceCodeLocation": SourceCodeLocationJobFacet(
+                        type="",
+                        url="models/example/test_third_dbt_model.sql"
+                    ),
+                    "sql": SqlJobFacet(
+                        query="select first.id as id, second.id as second_id from "
+                            "`speedy-vim-308516`.`dbt_test1`.`test_second_dbt_model` as first join"
+                            " `speedy-vim-308516`.`dbt_test1`.`test_second_parallel_dbt_model` "
+                            "as second on first.id = second.id"
+                    )
+                }
+            ),
+            producer=PRODUCER,
+            inputs=[
+                Dataset(
+                    namespace='dbt_openlineage_test',
+                    name='speedy-vim-308516.dbt_test1.test_second_parallel_dbt_model'
+                ),
+                Dataset(
+                    namespace='dbt_openlineage_test',
+                    name='speedy-vim-308516.dbt_test1.test_second_dbt_model'
+                )
+            ],
+            outputs=[
+                Dataset(
+                    namespace='dbt_openlineage_test',
+                    name='speedy-vim-308516.dbt_test1.test_third_dbt_model'
+                )
+            ]
+        ))

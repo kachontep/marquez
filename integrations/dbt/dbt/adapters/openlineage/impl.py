@@ -12,8 +12,8 @@ class OpenLineageAdapter(BigQueryAdapter):
         return 'openlineage'
 
     @available.parse(lambda *a, **k: '')
-    def emit_start(self, model):
-        return self.connections.emit_start(model)
+    def emit_start(self, model, run_started_at):
+        return self.connections.emit_start(model, run_started_at)
 
     @available.parse(lambda *a, **k: '')
     def emit_complete(self, run_id):

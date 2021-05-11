@@ -10,7 +10,7 @@
 
 {% materialization view, adapter='openlineage' -%}
 
-    {%- set openlineage_run_id = adapter.emit_start(model) -%}
+    {%- set openlineage_run_id = adapter.emit_start(model, run_started_at.isoformat()) -%}
 
     {% set to_return = create_or_replace_view(run_outside_transaction_hooks=False) %}
 

@@ -58,7 +58,7 @@
   {%- endif -%}
 
   -- emit OpenLineage START event, with all dataset data
-  {%- set openlineage_run_id = adapter.emit_start(model) -%}
+  {%- set openlineage_run_id = adapter.emit_start(model, run_started_at.isoformat()) -%}
 
   -- build model
   {% if partitions %}

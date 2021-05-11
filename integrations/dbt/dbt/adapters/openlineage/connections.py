@@ -4,7 +4,6 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional
-from unittest.mock import MagicMock
 
 import google.cloud.exceptions
 import google.auth.exceptions
@@ -16,6 +15,7 @@ from dbt.logger import GLOBAL_LOGGER as logger
 
 from dbt.adapters.openlineage.sql import SqlParser
 from openlineage.client import OpenLineageClientOptions, OpenLineageClient
+from openlineage.facet import SourceCodeLocationJobFacet, SqlJobFacet
 from openlineage.run import RunEvent, RunState, Run, Job, Dataset
 
 
@@ -56,7 +56,7 @@ class OpenLineageConnectionManager(BigQueryConnectionManager):
         error_msg = "\n".join([item['message'] for item in error.errors])
         raise DatabaseException(error_msg)
 
-    def get_client(self):
+    def get_openlineage_client(self):
         if not hasattr(self, '_openlineage_client'):
             creds = self.profile.credentials
             self._openlineage_client = OpenLineageClient(
@@ -68,7 +68,7 @@ class OpenLineageConnectionManager(BigQueryConnectionManager):
             )
         return self._openlineage_client
 
-    def emit_start(self, model):
+    def emit_start(self, model, run_started_at: str):
         run_id = str(uuid.uuid4())
 
         inputs = []
@@ -95,16 +95,26 @@ class OpenLineageConnectionManager(BigQueryConnectionManager):
 
         output_relation_name = model['relation_name'].replace('`', "")
 
-        self.get_client().emit(RunEvent(
+        self.get_openlineage_client().emit(RunEvent(
             eventType=RunState.START,
-            eventTime=datetime.now().isoformat(),
+            eventTime=run_started_at,
             run=Run(runId=run_id),
-            job=Job(namespace=meta.namespace, name=meta.name),
+            job=Job(
+                namespace=meta.namespace,
+                name=meta.name,
+                facets={
+                    "sourceCodeLocation": SourceCodeLocationJobFacet("", model['original_file_path']),
+                    "sql": SqlJobFacet(model['compiled_sql'])
+                }
+            ),
             producer=PRODUCER,
             inputs=[
                 Dataset(
                     namespace=meta.namespace,
-                    name=relation.replace('`', "")
+                    name=relation,
+                    facets={
+
+                    }
                 ) for relation in inputs
             ],
             outputs=[
@@ -116,7 +126,7 @@ class OpenLineageConnectionManager(BigQueryConnectionManager):
 
     def emit_complete(self, run_id):
         meta = self._meta[run_id]
-        self.get_client().emit(RunEvent(
+        self.get_openlineage_client().emit(RunEvent(
             eventType=RunState.COMPLETE,
             eventTime=datetime.now().isoformat(),
             run=Run(runId=run_id),
@@ -133,7 +143,7 @@ class OpenLineageConnectionManager(BigQueryConnectionManager):
             logger.error("can't emit OpenLineage event when run failed: can't find run id")
         meta = self._meta[res.group(1)]
         logger.info(f'run id failed {meta.run_id}')
-        self.get_client().emit(RunEvent(
+        self.get_openlineage_client().emit(RunEvent(
             eventType=RunState.FAIL,
             eventTime=datetime.now().isoformat(),
             run=Run(runId=meta.run_id),
