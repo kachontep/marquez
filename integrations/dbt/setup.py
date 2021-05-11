@@ -31,7 +31,7 @@ setup(
         ]
     },
     install_requires=[
-        "dbt-core==0.20.0b2",
+        "dbt-core==0.20.0b1",
         "sqlparse==0.4.1",
         "openlineage==0.0.1"
     ],
