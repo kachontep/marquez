@@ -223,6 +223,7 @@ workflows:
             - test-integration-airflow
       - build-integration-airflow:
           <<: *only-on-release
+      - test-integration-dbt
       - release-java:
           <<: *only-on-release
           context: release
